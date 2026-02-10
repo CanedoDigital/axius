@@ -1071,6 +1071,7 @@
 .content-slider.scrolling .content-card {
     animation: slideIn 0.3s ease;
 }
+
     </style>
 </head>
 <body>
@@ -1145,12 +1146,12 @@
             </div>
 
             <!-- CONTINUE WATCHING SECTION -->
-            <div class="continue-watching-section" id="continueWatchingSection">
-                <h2 class="section-title">Continuar viendo</h2>
-                <div class="content-row">
-                    <div class="content-slider" id="continueWatchingGrid"></div>
-                </div>
-            </div>
+<div class="continue-watching-section" id="continueWatchingSection">
+    <h2 class="section-title">Continuar viendo</h2>
+    <div class="content-row">
+        <div class="content-slider" id="continueWatchingGrid"></div>
+    </div>
+</div>
 
             <!-- MOVIES -->
             <div class="content-section">
@@ -1447,7 +1448,7 @@
                     duration: '52 min',
                     description: 'La investigación revela un patrón aterrador mientras los crímenes continúan en la campiña toscana.',
                     thumbnail: 'https://via.placeholder.com/150x85/4a0e0e/d4af37?text=EP2',
-                    videoUrl: 'https://axius.seeks.cloud/#abhxj'
+                    videoUrl: ''
                 },
                 {
                     number: 3,
@@ -1920,10 +1921,12 @@
         };
         
 
-        let currentContent = null;
-        let currentSeason = 1;
+       let currentContent = null;
+let currentSeason = 1;
+let progressTracker = null;
+let currentProgress = 5;
 
-        // WATCHING PROGRESS STORAGE
+// WATCHING PROGRESS STORAGE
 function saveWatchingProgress(contentId, progress, episodeData = null) {
     try {
         const watchingData = {
@@ -1933,11 +1936,10 @@ function saveWatchingProgress(contentId, progress, episodeData = null) {
             episodeData: episodeData
         };
         localStorage.setItem(`watching_${contentId}`, JSON.stringify(watchingData));
+        console.log('✅ Progreso guardado:', contentId, progress + '%');
         updateContinueWatching();
     } catch (e) {
         console.error('Error saving progress:', e);
-        // Fallback a cookies si localStorage falla
-        saveToCookie(`watching_${contentId}`, JSON.stringify(watchingData), 30);
     }
 }
 
@@ -1946,8 +1948,8 @@ function getWatchingProgress(contentId) {
         const data = localStorage.getItem(`watching_${contentId}`);
         return data ? JSON.parse(data) : null;
     } catch (e) {
-        // Fallback a cookies
-        return getFromCookie(`watching_${contentId}`);
+        console.error('Error getting progress:', e);
+        return null;
     }
 }
 
@@ -1967,45 +1969,31 @@ function getAllWatchingProgress() {
     return watching.sort((a, b) => b.timestamp - a.timestamp);
 }
 
-// Funciones de cookies como fallback
-function saveToCookie(name, value, days) {
-    const expires = new Date();
-    expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
-    document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires.toUTCString()};path=/;SameSite=Lax`;
-}
-
-function getFromCookie(name) {
-    const nameEQ = name + "=";
-    const ca = document.cookie.split(';');
-    for (let i = 0; i < ca.length; i++) {
-        let c = ca[i];
-        while (c.charAt(0) === ' ') c = c.substring(1, c.length);
-        if (c.indexOf(nameEQ) === 0) {
-            try {
-                return JSON.parse(decodeURIComponent(c.substring(nameEQ.length, c.length)));
-            } catch (e) {
-                return null;
-            }
-        }
-    }
-    return null;
-}
-
 function updateContinueWatching() {
     const watchingList = getAllWatchingProgress();
     const section = document.getElementById('continueWatchingSection');
     const grid = document.getElementById('continueWatchingGrid');
 
-    if (!section || !grid) return;
-
-    if (watchingList.length === 0) {
-        section.classList.remove('active');
+    if (!section || !grid) {
+        console.warn('⚠️ Elementos de continuar viendo no encontrados');
         return;
     }
 
+    if (watchingList.length === 0) {
+        section.classList.remove('active');
+        console.log('📭 No hay contenido para continuar viendo');
+        return;
+    }
+
+    console.log('📺 Actualizando continuar viendo con', watchingList.length, 'items');
     section.classList.add('active');
     
-    const allContent = [...contentDatabase.movies, ...contentDatabase.series, ...contentDatabase.anime, ...contentDatabase.animepeli];
+    const allContent = [
+        ...contentDatabase.movies, 
+        ...contentDatabase.series, 
+        ...contentDatabase.anime, 
+        ...contentDatabase.animepeli
+    ];
     
     grid.innerHTML = watchingList.map(watching => {
         const content = allContent.find(c => c.id === watching.contentId);
@@ -2016,11 +2004,18 @@ function updateContinueWatching() {
             title += ` - T${watching.episodeData.season}:E${watching.episodeData.episode}`;
         }
 
-        const contentStr = JSON.stringify(content).replace(/'/g, "&#39;").replace(/"/g, '&quot;');
-        const watchingStr = JSON.stringify(watching).replace(/'/g, "&#39;").replace(/"/g, '&quot;');
+        const contentEscaped = JSON.stringify(content)
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/"/g, '&quot;');
+        
+        const watchingEscaped = JSON.stringify(watching)
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/"/g, '&quot;');
 
         return `
-            <div class="content-card" onclick='resumeContent(${contentStr}, ${watchingStr})'>
+            <div class="content-card" onclick="resumeContent(JSON.parse('${contentEscaped}'), JSON.parse('${watchingEscaped}'))">
                 <img src="${content.image}" alt="${content.title}" loading="lazy">
                 <div class="progress-bar-container">
                     <div class="progress-bar" style="width: ${watching.progress}%"></div>
@@ -2035,14 +2030,19 @@ function updateContinueWatching() {
             </div>
         `;
     }).join('');
+
+    setTimeout(() => {
+        updateArrowVisibility('continueWatchingGrid');
+    }, 100);
 }
 
 function resumeContent(content, watchingData) {
+    console.log('▶️ Resumiendo:', content.title);
     if (content.type === 'movie' || content.type === 'animepeli') {
         openContent(content);
     } else {
         openContent(content);
-        if (watchingData.episodeData) {
+        if (watchingData && watchingData.episodeData) {
             changeSeason(watchingData.episodeData.season);
             setTimeout(() => {
                 const season = content.seasons[watchingData.episodeData.season - 1];
@@ -2057,19 +2057,35 @@ function resumeContent(content, watchingData) {
     }
 }
 
-// TRACK VIDEO PROGRESS
-let progressTracker = null;
-
+// TRACK VIDEO PROGRESS - VERSIÓN MEJORADA
 function startTrackingProgress() {
     if (progressTracker) {
         clearInterval(progressTracker);
     }
 
+    // Guardar inmediatamente al empezar
+    currentProgress = 5;
+    
+    if (currentContent) {
+        let episodeData = null;
+        if (currentContent.type === 'series' || currentContent.type === 'anime') {
+            const currentEpisode = getCurrentEpisode();
+            if (currentEpisode) {
+                episodeData = {
+                    season: currentSeason,
+                    episode: currentEpisode.number
+                };
+            }
+        }
+        saveWatchingProgress(currentContent.id, currentProgress, episodeData);
+    }
+
+    // Actualizar progreso cada 10 segundos
     progressTracker = setInterval(() => {
         const iframe = document.getElementById('videoIframe');
         if (iframe && iframe.src && currentContent) {
-            // Simular progreso (en producción real usarías la API del iframe)
-            const randomProgress = Math.floor(Math.random() * 40) + 20;
+            // Incrementar progreso gradualmente
+            currentProgress = Math.min(currentProgress + 5, 95);
             
             let episodeData = null;
             if (currentContent.type === 'series' || currentContent.type === 'anime') {
@@ -2082,9 +2098,9 @@ function startTrackingProgress() {
                 }
             }
 
-            saveWatchingProgress(currentContent.id, randomProgress, episodeData);
+            saveWatchingProgress(currentContent.id, currentProgress, episodeData);
         }
-    }, 30000); // Guardar cada 30 segundos
+    }, 10000); // Guardar cada 10 segundos
 }
 
 function stopTrackingProgress() {
@@ -2092,10 +2108,15 @@ function stopTrackingProgress() {
         clearInterval(progressTracker);
         progressTracker = null;
     }
+    currentProgress = 5;
+    console.log('⏹️ Tracking detenido');
 }
 
 function getCurrentEpisode() {
-    if (!currentContent || (currentContent.type !== 'series' && currentContent.type !== 'anime')) return null;
+    if (!currentContent || (currentContent.type !== 'series' && currentContent.type !== 'anime')) {
+        return null;
+    }
+    
     const iframe = document.getElementById('videoIframe');
     if (!iframe || !iframe.src) return null;
 
@@ -2105,129 +2126,153 @@ function getCurrentEpisode() {
     return season.episodes.find(ep => ep.videoUrl === iframe.src);
 }
 
-// Inicializar al cargar la página
-document.addEventListener('DOMContentLoaded', () => {
-    updateContinueWatching();
-});
-        // PLAY AVATAR FROM HERO BANNER
-        function playAvatarHero() {
-            const avatarMovie = {
-                id: 'avatar',
-                title: 'Avatar Juego y Ceniza',
-                year: '2025',
-                rating: '8.9',
-                genre: 'Aventura, Fantasía',
-                image: 'https://www.sensacine.com/peliculas/pelicula-187247/',
-                description: 'continúa la saga de James Cameron, con Jake Sully y Neytiri enfrentando al Pueblo de la Ceniza, un clan Navi volcánico y agresivo liderado por Varang.',
-                type: 'movie',
-                videoUrl: 'https://axius.seeks.cloud/#jmufy'
-            };
-            openContent(avatarMovie);
-        }
-
-        // LOGIN SYSTEM
-        function login() {
-            const userName = document.getElementById('userName').value.trim();
-            const accessCode = document.getElementById('accessCode').value;
-            const errorMessage = document.getElementById('errorMessage');
-
-            if (!userName) {
-                errorMessage.textContent = 'Por favor ingresa tu nombre';
-                errorMessage.style.display = 'block';
-                return;
-            }
-
-            if (accessCode !== '9272917') {
-                errorMessage.textContent = 'Código incorrecto';
-                errorMessage.style.display = 'block';
-                return;
-            }
-
-            localStorage.setItem('axiusUser', userName);
-            localStorage.setItem('axiusAuth', 'true');
-            
-            document.getElementById('displayName').textContent = userName;
-            document.getElementById('loginPage').style.display = 'none';
-            document.getElementById('mainApp').style.display = 'block';
-            
-            initializeApp();
-        }
-
-        function logout() {
-            localStorage.removeItem('axiusUser');
-            localStorage.removeItem('axiusAuth');
-            location.reload();
-        }
-
-        function checkAuth() {
-            const isAuth = localStorage.getItem('axiusAuth');
-            const userName = localStorage.getItem('axiusUser');
-
-            if (isAuth === 'true' && userName) {
-                document.getElementById('displayName').textContent = userName;
-                document.getElementById('loginPage').style.display = 'none';
-                document.getElementById('mainApp').style.display = 'block';
-                initializeApp();
-            }
-        }
-
-        // INITIALIZE APP
-        function initializeApp() {
-            renderContent('moviesGrid', contentDatabase.movies);
-            renderContent('seriesGrid', contentDatabase.series);
-            renderContent('animeGrid', contentDatabase.anime);
-            renderContent('animepeli', contentDatabase.animepeli);
-            updateContinueWatching();
-        }
-
-        // RENDER CONTENT
-        function renderContent(gridId, items) {
-            const grid = document.getElementById(gridId);
-            grid.innerHTML = items.map(item => `
-                <div class="content-card" onclick='openContent(${JSON.stringify(item).replace(/'/g, "&#39;")})'>
-                    <img src="${item.image}" alt="${item.title}">
-                    <div class="content-overlay">
-                        <div class="content-title">${item.title}</div>
-                        <div class="content-meta">
-                            <span>${item.year}</span>
-                            <span class="rating">⭐ ${item.rating}</span>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
+// PLAY AVATAR FROM HERO BANNER
+function playAvatarHero() {
+    const avatarMovie = {
+        id: 'avatar',
+        title: 'Avatar Juego y Ceniza',
+        year: '2025',
+        rating: '8.9',
+        genre: 'Aventura, Fantasía',
+        image: 'https://www.sensacine.com/peliculas/pelicula-187247/',
+        description: 'Continúa la saga de James Cameron, con Jake Sully y Neytiri enfrentando al Pueblo de la Ceniza, un clan Navi volcánico y agresivo liderado por Varang.',
+        type: 'movie',
+        videoUrl: 'https://axius.seeks.cloud/#jmufy'
+    };
+    openContent(avatarMovie);
 }
+
+// LOGIN SYSTEM
+function login() {
+    const userName = document.getElementById('userName').value.trim();
+    const accessCode = document.getElementById('accessCode').value;
+    const errorMessage = document.getElementById('errorMessage');
+
+    if (!userName) {
+        errorMessage.textContent = 'Por favor ingresa tu nombre';
+        errorMessage.style.display = 'block';
+        return;
+    }
+
+    if (accessCode !== '9272917') {
+        errorMessage.textContent = 'Código incorrecto';
+        errorMessage.style.display = 'block';
+        return;
+    }
+
+    localStorage.setItem('axiusUser', userName);
+    localStorage.setItem('axiusAuth', 'true');
+    
+    document.getElementById('displayName').textContent = userName;
+    document.getElementById('loginPage').style.display = 'none';
+    document.getElementById('mainApp').style.display = 'block';
+    
+    initializeApp();
+}
+
+function logout() {
+    localStorage.removeItem('axiusUser');
+    localStorage.removeItem('axiusAuth');
+    location.reload();
+}
+
+function checkAuth() {
+    const isAuth = localStorage.getItem('axiusAuth');
+    const userName = localStorage.getItem('axiusUser');
+
+    if (isAuth === 'true' && userName) {
+        document.getElementById('displayName').textContent = userName;
+        document.getElementById('loginPage').style.display = 'none';
+        document.getElementById('mainApp').style.display = 'block';
+        initializeApp();
+    }
+}
+
+// INITIALIZE APP
+function initializeApp() {
+    console.log('🚀 Inicializando aplicación...');
+    renderContent('moviesGrid', contentDatabase.movies);
+    renderContent('seriesGrid', contentDatabase.series);
+    renderContent('animeGrid', contentDatabase.anime);
+    renderContent('animepeli', contentDatabase.animepeli);
+    updateContinueWatching();
+    
+    // Add navigation arrows after content is rendered
+    setTimeout(() => {
+        addNavigationArrows();
+    }, 100);
+}
+
+// RENDER CONTENT
+function renderContent(gridId, items) {
+    const grid = document.getElementById(gridId);
+    if (!grid) return;
+    
+    grid.innerHTML = items.map(item => {
+        const itemEscaped = JSON.stringify(item)
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/"/g, '&quot;');
+        
+        return `
+            <div class="content-card" onclick="openContent(JSON.parse('${itemEscaped}'))">
+                <img src="${item.image}" alt="${item.title}" loading="lazy">
+                <div class="content-overlay">
+                    <div class="content-title">${item.title}</div>
+                    <div class="content-meta">
+                        <span>${item.year}</span>
+                        <span class="rating">⭐ ${item.rating}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
 // SEARCH FUNCTIONALITY
-    function search() {
-        const query = document.getElementById('searchInput').value.toLowerCase().trim();
-        const searchGrid = document.getElementById('searchGrid');
-        const searchResults = document.getElementById('searchResults');
-        const noResults = document.getElementById('noResults');
-        const homeSection = document.getElementById('homeSection');
+function search() {
+    const query = document.getElementById('searchInput').value.toLowerCase().trim();
+    const searchGrid = document.getElementById('searchGrid');
+    const searchResults = document.getElementById('searchResults');
+    const noResults = document.getElementById('noResults');
+    const homeSection = document.getElementById('homeSection');
 
-        if (query === '') {
-            searchResults.classList.add('hidden');
-            homeSection.style.display = 'block';
-            return;
-        }
+    if (query === '') {
+        searchResults.classList.add('hidden');
+        homeSection.style.display = 'block';
+        return;
+    }
 
-        const allContent = [...contentDatabase.movies, ...contentDatabase.series, ...contentDatabase.anime, ...contentDatabase.animepeli];
-        const results = allContent.filter(item => 
-            item.title.toLowerCase().includes(query) ||
-            item.genre.toLowerCase().includes(query) ||
-            item.description.toLowerCase().includes(query)
-        );
+    const allContent = [
+        ...contentDatabase.movies, 
+        ...contentDatabase.series, 
+        ...contentDatabase.anime, 
+        ...contentDatabase.animepeli
+    ];
+    
+    const results = allContent.filter(item => 
+        item.title.toLowerCase().includes(query) ||
+        item.genre.toLowerCase().includes(query) ||
+        item.description.toLowerCase().includes(query)
+    );
 
-        homeSection.style.display = 'none';
-        searchResults.classList.remove('hidden');
+    homeSection.style.display = 'none';
+    searchResults.classList.remove('hidden');
 
-        if (results.length === 0) {
-            searchGrid.innerHTML = '';
-            noResults.classList.remove('hidden');
-        } else {
-            noResults.classList.add('hidden');
-            searchGrid.innerHTML = results.map(item => `
-                <div class="content-card" onclick='openContent(${JSON.stringify(item).replace(/'/g, "&#39;")})'>
-                    <img src="${item.image}" alt="${item.title}">
+    if (results.length === 0) {
+        searchGrid.innerHTML = '';
+        noResults.classList.remove('hidden');
+    } else {
+        noResults.classList.add('hidden');
+        searchGrid.innerHTML = results.map(item => {
+            const itemEscaped = JSON.stringify(item)
+                .replace(/\\/g, '\\\\')
+                .replace(/'/g, "\\'")
+                .replace(/"/g, '&quot;');
+            
+            return `
+                <div class="content-card" onclick="openContent(JSON.parse('${itemEscaped}'))">
+                    <img src="${item.image}" alt="${item.title}" loading="lazy">
                     <div class="content-overlay">
                         <div class="content-title">${item.title}</div>
                         <div class="content-meta">
@@ -2236,58 +2281,73 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                     </div>
                 </div>
-            `).join('');
-        }
+            `;
+        }).join('');
     }
+}
 
-    // OPEN CONTENT IN MODAL
-    function openContent(item) {
-        currentContent = item;
-        currentSeason = 1;
+// OPEN CONTENT IN MODAL
+function openContent(item) {
+    console.log('🎬 Abriendo:', item.title);
+    currentContent = item;
+    currentSeason = 1;
 
-        const modal = document.getElementById('playerModal');
-        modal.classList.add('active');
-        document.body.style.overflow = 'hidden';
+    const modal = document.getElementById('playerModal');
+    modal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    
+    document.getElementById('modalTitle').textContent = item.title;
+    document.getElementById('modalDescription').textContent = item.description;
+    document.getElementById('modalYear').textContent = item.year;
+    document.getElementById('modalRating').textContent = `⭐ ${item.rating}`;
+    document.getElementById('modalGenre').textContent = item.genre;
+
+    if (item.type === 'movie' || item.type === 'animepeli') {
+        document.getElementById('videoIframe').src = item.videoUrl;
+        document.getElementById('modalEpisodes').innerHTML = '';
         
-        document.getElementById('modalTitle').textContent = item.title;
-        document.getElementById('modalDescription').textContent = item.description;
-        document.getElementById('modalYear').textContent = item.year;
-        document.getElementById('modalRating').textContent = `⭐ ${item.rating}`;
-        document.getElementById('modalGenre').textContent = item.genre;
-
-        if (item.type === 'movie') {
-            document.getElementById('videoIframe').src = item.videoUrl;
-            document.getElementById('modalEpisodes').innerHTML = '';
-            startTrackingProgress();
-        } else {
-            showSeries(item);
-        }
+        // GUARDAR INMEDIATAMENTE
+        saveWatchingProgress(item.id, 5, null);
+        startTrackingProgress();
+    } else {
+        showSeries(item);
     }
+}
 
-    // CLOSE PLAYER MODAL
-    function closePlayer() {
-        const modal = document.getElementById('playerModal');
-        modal.classList.remove('active');
-        document.body.style.overflow = 'auto';
-        document.getElementById('videoIframe').src = '';
-        stopTrackingProgress();
-    }
+// CLOSE PLAYER MODAL
+function closePlayer() {
+    console.log('❌ Cerrando player');
+    const modal = document.getElementById('playerModal');
+    modal.classList.remove('active');
+    document.body.style.overflow = 'auto';
+    document.getElementById('videoIframe').src = '';
+    stopTrackingProgress();
+    
+    // Actualizar continuar viendo al cerrar
+    updateContinueWatching();
+}
 
-    // SHOW SERIES IN MODAL
-    function showSeries(item) {
-        const episodesSection = document.getElementById('modalEpisodes');
+// SHOW SERIES IN MODAL
+function showSeries(item) {
+    const episodesSection = document.getElementById('modalEpisodes');
+    
+    // Season Selector
+    const seasonButtons = item.seasons.map(season => `
+        <button class="season-btn ${season.number === currentSeason ? 'active' : ''}" 
+                onclick="changeSeason(${season.number})">
+            Temporada ${season.number}
+        </button>
+    `).join('');
+
+    const currentSeasonData = item.seasons.find(s => s.number === currentSeason);
+    const episodesHTML = currentSeasonData.episodes.map(ep => {
+        const epEscaped = JSON.stringify(ep)
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/"/g, '&quot;');
         
-        // Season Selector
-        const seasonButtons = item.seasons.map(season => `
-            <button class="season-btn ${season.number === currentSeason ? 'active' : ''}" 
-                    onclick="changeSeason(${season.number})">
-                Temporada ${season.number}
-            </button>
-        `).join('');
-
-        const currentSeasonData = item.seasons.find(s => s.number === currentSeason);
-        const episodesHTML = currentSeasonData.episodes.map(ep => `
-            <div class="episode-card" onclick='playEpisode(${JSON.stringify(ep).replace(/'/g, "&#39;")})'>
+        return `
+            <div class="episode-card" onclick="playEpisode(JSON.parse('${epEscaped}'))">
                 <div class="episode-thumbnail">
                     EP ${ep.number}
                     <div class="play-overlay">
@@ -2302,78 +2362,83 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="episode-desc">${ep.description}</div>
                 </div>
             </div>
-        `).join('');
-
-        episodesSection.innerHTML = `
-            <div class="episodes-header">
-                <h2 class="episodes-title">Episodios</h2>
-                <div class="season-selector">${seasonButtons}</div>
-            </div>
-            <div class="episodes-grid">${episodesHTML}</div>
         `;
+    }).join('');
 
-        // Play first episode
-        playEpisode(currentSeasonData.episodes[0]);
-    }
+    episodesSection.innerHTML = `
+        <div class="episodes-header">
+            <h2 class="episodes-title">Episodios</h2>
+            <div class="season-selector">${seasonButtons}</div>
+        </div>
+        <div class="episodes-grid">${episodesHTML}</div>
+    `;
 
-    // CHANGE SEASON
-    function changeSeason(seasonNumber) {
-        currentSeason = seasonNumber;
-        showSeries(currentContent);
-    }
+    // Play first episode
+    playEpisode(currentSeasonData.episodes[0]);
+}
 
-    // PLAY EPISODE
-    function playEpisode(episode) {
-        const iframe = document.getElementById('videoIframe');
+// CHANGE SEASON
+function changeSeason(seasonNumber) {
+    console.log('📺 Cambiando a temporada', seasonNumber);
+    currentSeason = seasonNumber;
+    showSeries(currentContent);
+}
 
-        iframe.src = '';
-        iframe.removeAttribute('src');
+// PLAY EPISODE
+function playEpisode(episode) {
+    console.log('▶️ Reproduciendo episodio', episode.number);
+    const iframe = document.getElementById('videoIframe');
 
-        setTimeout(() => {
-            iframe.src = episode.videoUrl;
-            startTrackingProgress();
-        }, 50);
-    }
+    iframe.src = '';
+    iframe.removeAttribute('src');
 
-    // SHOW SECTION
-    function showSection(section) {
-        document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
-        event.target.classList.add('active');
+    setTimeout(() => {
+        iframe.src = episode.videoUrl;
         
-        closePlayer();
-        
-        if (section === 'movies') {
-            document.getElementById('seriesGrid').parentElement.parentElement.style.display = 'none';
-            document.getElementById('animeGrid').parentElement.parentElement.style.display = 'none';
-            document.getElementById('animepeli').parentElement.parentElement.style.display = 'none';
-            document.getElementById('moviesGrid').parentElement.parentElement.style.display = 'block';
-        } else if (section === 'series') {
-            document.getElementById('moviesGrid').parentElement.parentElement.style.display = 'none';
-            document.getElementById('animeGrid').parentElement.parentElement.style.display = 'none';
-            document.getElementById('animepeli').parentElement.parentElement.style.display = 'none';
-            document.getElementById('seriesGrid').parentElement.parentElement.style.display = 'block';
-        } else {
-            document.getElementById('moviesGrid').parentElement.parentElement.style.display = 'block';
-            document.getElementById('seriesGrid').parentElement.parentElement.style.display = 'block';
-            document.getElementById('animeGrid').parentElement.parentElement.style.display = 'block';
-            document.getElementById('animepeli').parentElement.parentElement.style.display = 'block';
+        // GUARDAR INMEDIATAMENTE al reproducir episodio
+        if (currentContent && (currentContent.type === 'series' || currentContent.type === 'anime')) {
+            const episodeData = {
+                season: currentSeason,
+                episode: episode.number
+            };
+            saveWatchingProgress(currentContent.id, 5, episodeData);
         }
-    }
+        
+        startTrackingProgress();
+    }, 50);
+}
 
-    // CHECK AUTH ON LOAD
-    checkAuth();
+// SHOW SECTION
+function showSection(section) {
+    document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+    event.target.classList.add('active');
     
-    // Header scroll effect
-    window.addEventListener('scroll', function() {
-        const header = document.querySelector('header');
-        if (window.scrollY > 0) {
-            header.classList.add('scrolled');
-        } else {
-            header.classList.remove('scrolled');
-        }
-    });
-    // NAVIGATION ARROWS FUNCTIONALITY - Agregar después del código existente
+    closePlayer();
+    
+    const moviesSection = document.getElementById('moviesGrid').parentElement.parentElement;
+    const seriesSection = document.getElementById('seriesGrid').parentElement.parentElement;
+    const animeSection = document.getElementById('animeGrid').parentElement.parentElement;
+    const animepeliSection = document.getElementById('animepeli').parentElement.parentElement;
+    
+    if (section === 'movies') {
+        moviesSection.style.display = 'block';
+        seriesSection.style.display = 'none';
+        animeSection.style.display = 'none';
+        animepeliSection.style.display = 'none';
+    } else if (section === 'series') {
+        moviesSection.style.display = 'none';
+        seriesSection.style.display = 'block';
+        animeSection.style.display = 'none';
+        animepeliSection.style.display = 'none';
+    } else {
+        moviesSection.style.display = 'block';
+        seriesSection.style.display = 'block';
+        animeSection.style.display = 'block';
+        animepeliSection.style.display = 'block';
+    }
+}
 
+// NAVIGATION ARROWS FUNCTIONALITY
 function addNavigationArrows() {
     const sections = ['moviesGrid', 'seriesGrid', 'animeGrid', 'animepeli', 'continueWatchingGrid'];
     
@@ -2382,6 +2447,9 @@ function addNavigationArrows() {
         if (!grid) return;
         
         const contentRow = grid.parentElement;
+        
+        // Check if arrows already exist
+        if (contentRow.querySelector('.nav-arrow')) return;
         
         // Create arrows
         const leftArrow = document.createElement('button');
@@ -2405,7 +2473,9 @@ function addNavigationArrows() {
 
 function scrollContent(gridId, direction) {
     const grid = document.getElementById(gridId);
-    const scrollAmount = grid.offsetWidth * 0.8; // Scroll 80% of visible width
+    if (!grid) return;
+    
+    const scrollAmount = grid.offsetWidth * 0.8;
     
     grid.classList.add('scrolling');
     
@@ -2420,6 +2490,8 @@ function scrollContent(gridId, direction) {
 
 function updateArrowVisibility(gridId) {
     const grid = document.getElementById(gridId);
+    if (!grid) return;
+    
     const contentRow = grid.parentElement;
     const leftArrow = contentRow.querySelector('.nav-arrow.left');
     const rightArrow = contentRow.querySelector('.nav-arrow.right');
@@ -2441,26 +2513,51 @@ function updateArrowVisibility(gridId) {
     }
 }
 
-// ACTUALIZAR LA FUNCIÓN initializeApp
-function initializeApp() {
-    renderContent('moviesGrid', contentDatabase.movies);
-    renderContent('seriesGrid', contentDatabase.series);
-    renderContent('animeGrid', contentDatabase.anime);
-    renderContent('animepeli', contentDatabase.animepeli);
-    updateContinueWatching();
+// FUNCIÓN DE PRUEBA - Para agregar datos de ejemplo
+function addTestData() {
+    console.log('🧪 Agregando datos de prueba...');
     
-    // Add navigation arrows after content is rendered
-    setTimeout(() => {
-        addNavigationArrows();
-    }, 100);
+    // Ben 10
+    saveWatchingProgress('ben-10', 45, {
+        season: 1,
+        episode: 5
+    });
+    
+    // Slugterra  
+    saveWatchingProgress('slugterra', 60, {
+        season: 1,
+        episode: 8
+    });
+    
+    // Toy Story
+    saveWatchingProgress('toy-story', 35, null);
+    
+    console.log('✅ Datos de prueba agregados. Total items:', getAllWatchingProgress().length);
 }
 
-// ACTUALIZAR LA FUNCIÓN updateContinueWatching (agregar al final)
-// Después de la línea: grid.innerHTML = watchingList.map...
-// Agregar:
-setTimeout(() => {
-    updateArrowVisibility('continueWatchingGrid');
-}, 100);
+// CHECK AUTH ON LOAD
+checkAuth();
+
+// Header scroll effect
+window.addEventListener('scroll', function() {
+    const header = document.querySelector('header');
+    if (header) {
+        if (window.scrollY > 0) {
+            header.classList.add('scrolled');
+        } else {
+            header.classList.remove('scrolled');
+        }
+    }
+});
+
+// Inicializar al cargar
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('✨ DOM cargado');
+    const isAuth = localStorage.getItem('axiusAuth');
+    if (isAuth === 'true') {
+        updateContinueWatching();
+    }
+});
 </script>
 </body>
 </html>
