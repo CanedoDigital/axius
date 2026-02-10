@@ -1924,74 +1924,97 @@
         let currentSeason = 1;
 
         // WATCHING PROGRESS STORAGE
-        function saveWatchingProgress(contentId, progress, episodeData = null) {
-            const watchingData = {
-                contentId: contentId,
-                progress: progress,
-                timestamp: Date.now(),
-                episodeData: episodeData
-            };
-            localStorage.setItem(`watching_${contentId}`, JSON.stringify(watchingData));
-            updateContinueWatching();
+function saveWatchingProgress(contentId, progress, episodeData = null) {
+    const watchingData = {
+        contentId,
+        progress,
+        timestamp: Date.now(),
+        episodeData
+    };
+    localStorage.setItem(`watching_${contentId}`, JSON.stringify(watchingData));
+}
+
+// Obtener progreso individual
+function getWatchingProgress(contentId) {
+    const data = localStorage.getItem(`watching_${contentId}`);
+    return data ? JSON.parse(data) : null;
+}
+
+// Obtener todos
+function getAllWatchingProgress() {
+    const watching = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('watching_')) {
+            try {
+                watching.push(JSON.parse(localStorage.getItem(key)));
+            } catch {}
+        }
+    }
+    return watching.sort((a, b) => b.timestamp - a.timestamp);
+}
+
+// Render Continue Watching
+function updateContinueWatching() {
+    const section = document.getElementById('continueWatchingSection');
+    const grid = document.getElementById('continueWatchingGrid');
+
+    if (!section || !grid) return;
+
+    const watchingList = getAllWatchingProgress();
+    if (watchingList.length === 0) {
+        section.classList.remove('active');
+        return;
+    }
+
+    section.classList.add('active');
+
+    const allContent = [
+        ...contentDatabase.movies,
+        ...contentDatabase.series,
+        ...contentDatabase.anime,
+        ...contentDatabase.animepeli
+    ];
+
+    grid.innerHTML = watchingList.map(watching => {
+        const content = allContent.find(c => c.id === watching.contentId);
+        if (!content) return '';
+
+        let title = content.title;
+        if (watching.episodeData) {
+            title += ` - T${watching.episodeData.season}:E${watching.episodeData.episode}`;
         }
 
-        function getWatchingProgress(contentId) {
-            const data = localStorage.getItem(`watching_${contentId}`);
-            return data ? JSON.parse(data) : null;
-        }
-
-        function getAllWatchingProgress() {
-            const watching = [];
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (key && key.startsWith('watching_')) {
-                    const data = JSON.parse(localStorage.getItem(key));
-                    watching.push(data);
-                }
-            }
-            return watching.sort((a, b) => b.timestamp - a.timestamp);
-        }
-
-        function updateContinueWatching() {
-            const watchingList = getAllWatchingProgress();
-            const section = document.getElementById('continueWatchingSection');
-            const grid = document.getElementById('continueWatchingGrid');
-
-            if (watchingList.length === 0) {
-                section.classList.remove('active');
-                return;
-            }
-
-            section.classList.add('active');
-            
-            const allContent = [...contentDatabase.movies, ...contentDatabase.series, ...contentDatabase.anime, ...contentDatabase.animepeli];
-            
-            grid.innerHTML = watchingList.map(watching => {
-                const content = allContent.find(c => c.id === watching.contentId);
-                if (!content) return '';
-
-                let title = content.title;
-                if (watching.episodeData) {
-                    title += ` - T${watching.episodeData.season}:E${watching.episodeData.episode}`;
-                }
-
-                return `
-                    <div class="content-card" onclick='resumeContent(${JSON.stringify(content).replace(/'/g, "&#39;")}, ${JSON.stringify(watching).replace(/'/g, "&#39;")})'>
-                        <img src="${content.image}" alt="${content.title}">
-                        <div class="progress-bar-container">
-                            <div class="progress-bar" style="width: ${watching.progress}%"></div>
-                        </div>
-                        <div class="content-overlay">
-                            <div class="content-title">${title}</div>
-                            <div class="content-meta">
-                                <span>${content.year}</span>
-                                <span class="rating">⭐ ${content.rating}</span>
-                            </div>
-                        </div>
+        return `
+            <div class="content-card"
+                data-content='${encodeURIComponent(JSON.stringify(content))}'
+                data-watching='${encodeURIComponent(JSON.stringify(watching))}'
+            >
+                <img src="${content.image}" alt="${content.title}">
+                <div class="progress-bar-container">
+                    <div class="progress-bar" style="width:${watching.progress}%"></div>
+                </div>
+                <div class="content-overlay">
+                    <div class="content-title">${title}</div>
+                    <div class="content-meta">
+                        <span>${content.year}</span>
+                        <span class="rating">⭐ ${content.rating}</span>
                     </div>
-                `;
-            }).join('');
-        }
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    // Eventos click seguros
+    grid.querySelectorAll('.content-card').forEach(card => {
+        card.addEventListener('click', () => {
+            const content = JSON.parse(decodeURIComponent(card.dataset.content));
+            const watching = JSON.parse(decodeURIComponent(card.dataset.watching));
+            resumeContent(content, watching);
+        });
+    });
+}
+
 
         function resumeContent(content, watchingData) {
             if (content.type === 'movie') {
