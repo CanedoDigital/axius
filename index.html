@@ -1925,57 +1925,88 @@
 
         // WATCHING PROGRESS STORAGE
 function saveWatchingProgress(contentId, progress, episodeData = null) {
-    const watchingData = {
-        contentId,
-        progress,
-        timestamp: Date.now(),
-        episodeData
-    };
-    localStorage.setItem(`watching_${contentId}`, JSON.stringify(watchingData));
+    try {
+        const watchingData = {
+            contentId: contentId,
+            progress: progress,
+            timestamp: Date.now(),
+            episodeData: episodeData
+        };
+        localStorage.setItem(`watching_${contentId}`, JSON.stringify(watchingData));
+        updateContinueWatching();
+    } catch (e) {
+        console.error('Error saving progress:', e);
+        // Fallback a cookies si localStorage falla
+        saveToCookie(`watching_${contentId}`, JSON.stringify(watchingData), 30);
+    }
 }
 
-// Obtener progreso individual
 function getWatchingProgress(contentId) {
-    const data = localStorage.getItem(`watching_${contentId}`);
-    return data ? JSON.parse(data) : null;
+    try {
+        const data = localStorage.getItem(`watching_${contentId}`);
+        return data ? JSON.parse(data) : null;
+    } catch (e) {
+        // Fallback a cookies
+        return getFromCookie(`watching_${contentId}`);
+    }
 }
 
-// Obtener todos
 function getAllWatchingProgress() {
     const watching = [];
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith('watching_')) {
-            try {
-                watching.push(JSON.parse(localStorage.getItem(key)));
-            } catch {}
+    try {
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith('watching_')) {
+                const data = JSON.parse(localStorage.getItem(key));
+                watching.push(data);
+            }
         }
+    } catch (e) {
+        console.error('Error reading progress:', e);
     }
     return watching.sort((a, b) => b.timestamp - a.timestamp);
 }
 
-// Render Continue Watching
+// Funciones de cookies como fallback
+function saveToCookie(name, value, days) {
+    const expires = new Date();
+    expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
+    document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires.toUTCString()};path=/;SameSite=Lax`;
+}
+
+function getFromCookie(name) {
+    const nameEQ = name + "=";
+    const ca = document.cookie.split(';');
+    for (let i = 0; i < ca.length; i++) {
+        let c = ca[i];
+        while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+        if (c.indexOf(nameEQ) === 0) {
+            try {
+                return JSON.parse(decodeURIComponent(c.substring(nameEQ.length, c.length)));
+            } catch (e) {
+                return null;
+            }
+        }
+    }
+    return null;
+}
+
 function updateContinueWatching() {
+    const watchingList = getAllWatchingProgress();
     const section = document.getElementById('continueWatchingSection');
     const grid = document.getElementById('continueWatchingGrid');
 
     if (!section || !grid) return;
 
-    const watchingList = getAllWatchingProgress();
     if (watchingList.length === 0) {
         section.classList.remove('active');
         return;
     }
 
     section.classList.add('active');
-
-    const allContent = [
-        ...contentDatabase.movies,
-        ...contentDatabase.series,
-        ...contentDatabase.anime,
-        ...contentDatabase.animepeli
-    ];
-
+    
+    const allContent = [...contentDatabase.movies, ...contentDatabase.series, ...contentDatabase.anime, ...contentDatabase.animepeli];
+    
     grid.innerHTML = watchingList.map(watching => {
         const content = allContent.find(c => c.id === watching.contentId);
         if (!content) return '';
@@ -1985,14 +2016,14 @@ function updateContinueWatching() {
             title += ` - T${watching.episodeData.season}:E${watching.episodeData.episode}`;
         }
 
+        const contentStr = JSON.stringify(content).replace(/'/g, "&#39;").replace(/"/g, '&quot;');
+        const watchingStr = JSON.stringify(watching).replace(/'/g, "&#39;").replace(/"/g, '&quot;');
+
         return `
-            <div class="content-card"
-                data-content='${encodeURIComponent(JSON.stringify(content))}'
-                data-watching='${encodeURIComponent(JSON.stringify(watching))}'
-            >
-                <img src="${content.image}" alt="${content.title}">
+            <div class="content-card" onclick='resumeContent(${contentStr}, ${watchingStr})'>
+                <img src="${content.image}" alt="${content.title}" loading="lazy">
                 <div class="progress-bar-container">
-                    <div class="progress-bar" style="width:${watching.progress}%"></div>
+                    <div class="progress-bar" style="width: ${watching.progress}%"></div>
                 </div>
                 <div class="content-overlay">
                     <div class="content-title">${title}</div>
@@ -2004,82 +2035,80 @@ function updateContinueWatching() {
             </div>
         `;
     }).join('');
-
-    // Eventos click seguros
-    grid.querySelectorAll('.content-card').forEach(card => {
-        card.addEventListener('click', () => {
-            const content = JSON.parse(decodeURIComponent(card.dataset.content));
-            const watching = JSON.parse(decodeURIComponent(card.dataset.watching));
-            resumeContent(content, watching);
-        });
-    });
 }
 
-
-        function resumeContent(content, watchingData) {
-            if (content.type === 'movie') {
-                openContent(content);
-            } else {
-                openContent(content);
-                if (watchingData.episodeData) {
-                    changeSeason(watchingData.episodeData.season);
-                    setTimeout(() => {
-                        const episode = content.seasons[watchingData.episodeData.season - 1]
-                            .episodes[watchingData.episodeData.episode - 1];
+function resumeContent(content, watchingData) {
+    if (content.type === 'movie' || content.type === 'animepeli') {
+        openContent(content);
+    } else {
+        openContent(content);
+        if (watchingData.episodeData) {
+            changeSeason(watchingData.episodeData.season);
+            setTimeout(() => {
+                const season = content.seasons[watchingData.episodeData.season - 1];
+                if (season) {
+                    const episode = season.episodes[watchingData.episodeData.episode - 1];
+                    if (episode) {
                         playEpisode(episode);
-                    }, 100);
-                }
-            }
-        }
-
-        // TRACK VIDEO PROGRESS
-        let progressTracker = null;
-
-        function startTrackingProgress() {
-            if (progressTracker) {
-                clearInterval(progressTracker);
-            }
-
-            progressTracker = setInterval(() => {
-                const iframe = document.getElementById('videoIframe');
-                if (iframe && iframe.src && currentContent) {
-                    // Simular progreso (en producción real usarías la API del iframe)
-                    const randomProgress = Math.floor(Math.random() * 40) + 20;
-                    
-                    let episodeData = null;
-                    if (currentContent.type === 'series') {
-                        const currentEpisode = getCurrentEpisode();
-                        if (currentEpisode) {
-                            episodeData = {
-                                season: currentSeason,
-                                episode: currentEpisode.number
-                            };
-                        }
                     }
-
-                    saveWatchingProgress(currentContent.id, randomProgress, episodeData);
                 }
-            }, 30000); // Guardar cada 30 segundos
+            }, 100);
         }
+    }
+}
 
-        function stopTrackingProgress() {
-            if (progressTracker) {
-                clearInterval(progressTracker);
-                progressTracker = null;
+// TRACK VIDEO PROGRESS
+let progressTracker = null;
+
+function startTrackingProgress() {
+    if (progressTracker) {
+        clearInterval(progressTracker);
+    }
+
+    progressTracker = setInterval(() => {
+        const iframe = document.getElementById('videoIframe');
+        if (iframe && iframe.src && currentContent) {
+            // Simular progreso (en producción real usarías la API del iframe)
+            const randomProgress = Math.floor(Math.random() * 40) + 20;
+            
+            let episodeData = null;
+            if (currentContent.type === 'series' || currentContent.type === 'anime') {
+                const currentEpisode = getCurrentEpisode();
+                if (currentEpisode) {
+                    episodeData = {
+                        season: currentSeason,
+                        episode: currentEpisode.number
+                    };
+                }
             }
+
+            saveWatchingProgress(currentContent.id, randomProgress, episodeData);
         }
+    }, 30000); // Guardar cada 30 segundos
+}
 
-        function getCurrentEpisode() {
-            if (!currentContent || currentContent.type !== 'series') return null;
-            const iframe = document.getElementById('videoIframe');
-            if (!iframe.src) return null;
+function stopTrackingProgress() {
+    if (progressTracker) {
+        clearInterval(progressTracker);
+        progressTracker = null;
+    }
+}
 
-            const season = currentContent.seasons.find(s => s.number === currentSeason);
-            if (!season) return null;
+function getCurrentEpisode() {
+    if (!currentContent || (currentContent.type !== 'series' && currentContent.type !== 'anime')) return null;
+    const iframe = document.getElementById('videoIframe');
+    if (!iframe || !iframe.src) return null;
 
-            return season.episodes.find(ep => ep.videoUrl === iframe.src);
-        }
+    const season = currentContent.seasons?.find(s => s.number === currentSeason);
+    if (!season) return null;
 
+    return season.episodes.find(ep => ep.videoUrl === iframe.src);
+}
+
+// Inicializar al cargar la página
+document.addEventListener('DOMContentLoaded', () => {
+    updateContinueWatching();
+});
         // PLAY AVATAR FROM HERO BANNER
         function playAvatarHero() {
             const avatarMovie = {
